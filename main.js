@@ -2,32 +2,78 @@
 const electron = require('electron');
 const {app, BrowserWindow} = electron;
 const request = require("request");
+const dns = require('dns');
+const os = require('os');
 var windows = [];
-const pageUrl = 'file://' + __dirname + '/app/index.html';
+var serverurl;
+var debug = true;
+
+// get computer name, stripping any domain component
+const computername = os.hostname().replace(/^([^\.]*)\.+.*$/,'$1');
 
 app.on('ready', function() {
+  app.dock.hide();
   var hiddenWindow = new BrowserWindow({
     show:false
   })
-  setInterval(mainLoop,5000);
-
+  bootstrap();
 });
+
+async function bootstrap(){
+  console.log("node version: " + process.version);
+  console.log("computername: " + computername);
+  serverurl = await discoverServer();
+  setInterval(mainLoop,5000);
+}
 
 function mainLoop() {
   checkAlerts().then(
     function(result){
       console.log(result.numalerts);
       if(result.numalerts > 0) {
-        showAlert( "http://localhost:3333/alerts/apaulk2118?detail=true" );
+        showAlert( serverurl + "/alerts/" + computername  + "?detail=true" );
       }
       else {
         hideAlert();
       }
     },
     function(err){
-      console.log(err);
+      debug && console.log(err);
     }
   );
+}
+
+async function discoverServer() {
+  var discovered_server = null;
+  var possible_servers = [
+    "http://alertserver:3333",
+    "http://alertserver",
+    "https://alertserver"
+  ];
+  for(var i = 0; i<possible_servers.length; i++) {
+    console.log("checking server " + possible_servers[i]);
+    var result;
+    try{
+      result = await getJson(possible_servers[i],'alerts');
+    }catch(err){
+      debug && console.log(err);
+    }
+    if( result != null )
+      debug && console.log(result);
+    //if(result != null && result.hasOwnProperty(numalerts)){
+    if(result != null){
+      console.log("found server " + possible_servers[i]);
+      discovered_server = possible_servers[i]; 
+    }
+    else{
+      console.log("could not get numalerts from server " + possible_servers[i]);
+    }
+
+    if( discovered_server != null )
+      return discovered_server;
+  }
+  return null;
+  //return "http://10.234.3.115:3333";
 }
 
 function showAlert( url ) {
@@ -57,9 +103,9 @@ function hideAlert() {
   windows = [];
 }
 
-function checkAlerts() {
+function getJson(_serverurl,action) {
   var options = {
-    url: 'http://localhost:3333/alerts/apaulk2118?json=true',
+    url: _serverurl + '/' + action + '/' + computername  + '?json=true',
     headers: {
         'User-Agent': 'request'
     }
@@ -75,4 +121,8 @@ function checkAlerts() {
         }
       })
   })
+}
+
+function checkAlerts() {
+  return getJson(serverurl,'alerts');
 }
